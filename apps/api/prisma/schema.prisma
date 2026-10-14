@@ -1,0 +1,269 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  name            String
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  role            String
+  department      String?
+  year            Int?
+  section         String?
+  mobileNumber    String?  @map("mobile_number")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  enrollments          Enrollment[]
+  classSectionsAsFaculty ClassSection[] @relation("FacultySection")
+  attendances          Attendance[]
+  odRequestsAsStudent  ODRequest[]    @relation("StudentOD")
+  odRequestsAsApprover ODRequest[]    @relation("ApproverOD")
+  marksAsStudent       Mark[]
+  eventRegistrations   EventRegistration[]
+  certificatesAsStudent Certificate[] @relation("CertStudent")
+  certificatesApproved  Certificate[] @relation("CertApprover")
+  certificatesProposed  Certificate[] @relation("CertProposer")
+  channelMembers       ChannelMember[]
+  messages             Message[]
+  announcements        Announcement[]
+  clubsAsCoordinator   Club[]        @relation("FacultyCoordinator")
+  clubsAsMember        Club[]        @relation("ClubLeadUser")
+  eventsApproved       Event[]       @relation("EventApprover")
+  eventsCreated        Event[]       @relation("EventCreator")
+
+  @@map("users")
+}
+
+model Course {
+  id        String @id @default(uuid())
+  code      String @unique
+  name      String
+  credits   Int    @default(3)
+
+  classSections ClassSection[]
+  marks         Mark[]
+
+  @@map("courses")
+}
+
+model ClassSection {
+  id            String  @id @default(uuid())
+  courseId       String  @map("course_id")
+  facultyId      String  @map("faculty_id")
+  sectionName    String  @map("section_name")
+  slot           String
+  room           String
+  academicYear   String  @map("academic_year")
+  semester       String
+  advisorId      String? @map("advisor_id")
+
+  course     Course @relation(fields: [courseId], references: [id])
+  faculty    User   @relation("FacultySection", fields: [facultyId], references: [id])
+
+  enrollments   Enrollment[]
+  attendances   Attendance[]
+  odRequests    ODRequest[]
+
+  @@map("class_sections")
+}
+
+model Enrollment {
+  id           String @id @default(uuid())
+  studentId    String @map("student_id")
+  sectionId    String @map("section_id")
+
+  student   User          @relation(fields: [studentId], references: [id])
+  section   ClassSection  @relation(fields: [sectionId], references: [id])
+
+  @@unique([studentId, sectionId])
+  @@map("enrollments")
+}
+
+model Attendance {
+  id         String   @id @default(uuid())
+  studentId  String   @map("student_id")
+  sectionId  String   @map("section_id")
+  date       DateTime @db.Date
+  status     String
+
+  student  User          @relation(fields: [studentId], references: [id])
+  section  ClassSection  @relation(fields: [sectionId], references: [id])
+
+  @@unique([studentId, sectionId, date])
+  @@map("attendance")
+}
+
+model ODRequest {
+  id             String   @id @default(uuid())
+  studentId      String   @map("student_id")
+  sectionId      String   @map("section_id")
+  eventId        String?  @map("event_id")
+  requestType    String   @default("OD") @map("request_type")
+  requestedDate  DateTime @db.Date @map("requested_date")
+  reason         String?
+  status         String   @default("Pending")
+  approverId     String?  @map("approver_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  student   User          @relation("StudentOD", fields: [studentId], references: [id])
+  section   ClassSection  @relation(fields: [sectionId], references: [id])
+  event     Event?        @relation(fields: [eventId], references: [id])
+  approver  User?         @relation("ApproverOD", fields: [approverId], references: [id])
+
+  @@map("od_requests")
+}
+
+model Club {
+  id                    String   @id @default(uuid())
+  name                  String   @unique
+  description           String?
+  facultyCoordinatorId  String   @map("faculty_coordinator_id")
+  clubLeadId            String   @map("club_lead_id")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  facultyCoordinator User    @relation("FacultyCoordinator", fields: [facultyCoordinatorId], references: [id])
+  clubLead           User    @relation("ClubLeadUser", fields: [clubLeadId], references: [id])
+  events             Event[]
+
+  @@map("clubs")
+}
+
+model Event {
+  id           String   @id @default(uuid())
+  clubId       String   @map("club_id")
+  title        String
+  description  String?
+  date         DateTime @db.Date
+  venue        String?
+  status       String   @default("Pending Approval")
+  createdById  String   @map("created_by_id")
+  approvedById String?  @map("approved_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  club          Club              @relation(fields: [clubId], references: [id])
+  createdBy     User              @relation("EventCreator", fields: [createdById], references: [id])
+  approvedBy    User?             @relation("EventApprover", fields: [approvedById], references: [id])
+  registrations EventRegistration[]
+  odRequests    ODRequest[]
+  certificates  Certificate[]
+
+  @@map("events")
+}
+
+model EventRegistration {
+  id         String   @id @default(uuid())
+  eventId    String   @map("event_id")
+  studentId  String   @map("student_id")
+  attended   Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  event   Event @relation(fields: [eventId], references: [id])
+  student User  @relation(fields: [studentId], references: [id])
+
+  @@unique([eventId, studentId])
+  @@map("event_registrations")
+}
+
+model Mark {
+  id         String @id @default(uuid())
+  studentId  String @map("student_id")
+  courseId   String @map("course_id")
+  examType   String @map("exam_type")
+  marks      Float
+  maxMarks   Float  @map("max_marks")
+
+  student User   @relation(fields: [studentId], references: [id])
+  course  Course @relation(fields: [courseId], references: [id])
+
+  @@unique([studentId, courseId, examType])
+  @@map("marks")
+}
+
+model Certificate {
+  id           String   @id @default(uuid())
+  studentId    String   @map("student_id")
+  eventId      String   @map("event_id")
+  title        String
+  status       String   @default("Proposed")
+  proposedById String   @map("proposed_by_id")
+  approvedById String?  @map("approved_by_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  student    User   @relation("CertStudent", fields: [studentId], references: [id])
+  event      Event  @relation(fields: [eventId], references: [id])
+  proposedBy User   @relation("CertProposer", fields: [proposedById], references: [id])
+  approvedBy User?  @relation("CertApprover", fields: [approvedById], references: [id])
+
+  @@map("certificates")
+}
+
+model Channel {
+  id          String   @id @default(uuid())
+  name        String
+  type        String
+  referenceId String?  @map("reference_id")
+  readOnly    Boolean  @default(false) @map("read_only")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  members  ChannelMember[]
+  messages Message[]
+
+  @@map("channels")
+}
+
+model ChannelMember {
+  id        String  @id @default(uuid())
+  channelId String  @map("channel_id")
+  userId    String  @map("user_id")
+  canPost   Boolean @default(true) @map("can_post")
+
+  channel Channel @relation(fields: [channelId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([channelId, userId])
+  @@map("channel_members")
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  channelId String   @map("channel_id")
+  senderId  String   @map("sender_id")
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  channel Channel @relation(fields: [channelId], references: [id])
+  sender  User    @relation(fields: [senderId], references: [id])
+
+  @@map("messages")
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  scope     String
+  scopeId   String?  @map("scope_id")
+  authorId  String   @map("author_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  author User @relation(fields: [authorId], references: [id])
+
+  @@map("announcements")
+}
+
+model GCRSync {
+  id          String    @id @default(uuid())
+  sectionId   String    @unique @map("section_id")
+  gcrCourseId String    @map("gcr_course_id")
+  syncStatus  String    @default("linked") @map("sync_status")
+  lastSynced  DateTime? @map("last_synced")
+
+  @@map("gcr_sync")
+}
