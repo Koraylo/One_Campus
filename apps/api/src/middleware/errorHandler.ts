@@ -10,15 +10,19 @@ export class AppError extends Error {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function errorHandler(err: any, req: Request, res: Response, next: NextFunction): void {
-  console.error('[API Error]:', err);
+export function errorHandler(err: any, _req: Request, res: Response, _next: NextFunction): void {
+  const candidateStatus = err?.statusCode || err?.status;
+  const statusCode = Number.isInteger(candidateStatus) && candidateStatus >= 400 && candidateStatus < 600
+    ? candidateStatus
+    : 500;
 
-  const statusCode = err.statusCode || (err.status && typeof err.status === 'number' ? err.status : 500);
-  const message = err.message || 'An unexpected internal server error occurred.';
+  // Keep internal database/stack details in server logs, never in API responses.
+  if (statusCode >= 500) console.error('[API Error]:', err);
+  else console.warn('[API Request Error]:', err?.message || 'Request failed');
 
-  res.status(statusCode).json({
-    success: false,
-    error: message,
-  });
+  const message = statusCode < 500
+    ? (err?.message || 'The request could not be completed.')
+    : 'An unexpected server error occurred. Please try again later.';
+
+  res.status(statusCode).json({ success: false, error: message });
 }

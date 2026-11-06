@@ -22,6 +22,15 @@ export async function proposeCertificate(
   if (!event) {
     throw new AppError('Event not found', 404);
   }
+  const proposer = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  const isAuthorized = event.club.clubLeadId === userId || event.club.facultyCoordinatorId === userId || proposer?.role === 'admin';
+  if (!isAuthorized) throw new AppError('Forbidden: only this club team can propose its certificates', 403);
+  const registration = await prisma.eventRegistration.findUnique({
+    where: { eventId_studentId: { eventId, studentId } },
+  });
+  if (!registration || !registration.attended) {
+    throw new AppError('Certificates can only be proposed for students marked as event attendees', 400);
+  }
 
   const cert = await prisma.certificate.create({
     data: {

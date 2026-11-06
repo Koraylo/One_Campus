@@ -3,11 +3,15 @@ import { getChannelMessages, sendMessage, pollNewMessages } from '../services/me
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
+const MAX_MESSAGE_LENGTH = 4000;
 
-// GET /api/messages/:channelId/new (Poll for new messages)
 router.get('/:channelId/new', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const after = req.query.after as string;
+    const after = typeof req.query.after === 'string' ? req.query.after : undefined;
+    if (after && Number.isNaN(Date.parse(after))) {
+      res.status(400).json({ success: false, error: '`after` must be a valid ISO timestamp.' });
+      return;
+    }
     const messages = await pollNewMessages(req.params.channelId, req.user!.id, after);
     res.status(200).json({ success: true, data: messages });
   } catch (err) {
@@ -15,26 +19,37 @@ router.get('/:channelId/new', authenticate, async (req: Request, res: Response, 
   }
 });
 
-// GET /api/messages/:channelId (Messages in channel, paginated)
 router.get('/:channelId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { limit, before } = req.query;
-    const messages = await getChannelMessages(req.params.channelId, req.user!.id, {
-      limit: limit ? parseInt(limit as string, 10) : undefined,
-      before: before as string | undefined,
-    });
+    const limitValue = req.query.limit;
+    const limit = limitValue === undefined ? undefined : Number.parseInt(String(limitValue), 10);
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 100)) {
+      res.status(400).json({ success: false, error: 'limit must be an integer between 1 and 100.' });
+      return;
+    }
+
+    const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+    if (before && Number.isNaN(Date.parse(before))) {
+      res.status(400).json({ success: false, error: '`before` must be a valid ISO timestamp.' });
+      return;
+    }
+
+    const messages = await getChannelMessages(req.params.channelId, req.user!.id, { limit, before });
     res.status(200).json({ success: true, data: messages });
   } catch (err) {
     next(err);
   }
 });
 
-// POST /api/messages/:channelId (Send message)
 router.post('/:channelId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { content } = req.body;
-    if (!content || !content.trim()) {
-      res.status(400).json({ success: false, error: 'Content cannot be empty' });
+    const content = req.body?.content;
+    if (typeof content !== 'string' || !content.trim()) {
+      res.status(400).json({ success: false, error: 'Content must be a non-empty string.' });
+      return;
+    }
+    if (content.trim().length > MAX_MESSAGE_LENGTH) {
+      res.status(400).json({ success: false, error: `Messages cannot exceed ${MAX_MESSAGE_LENGTH} characters.` });
       return;
     }
 

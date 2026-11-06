@@ -73,7 +73,11 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const dateStr = req.query.date as string | undefined;
-      const result = await getSectionStudentsWithAttendance(req.params.id, dateStr);
+      const result = await getSectionStudentsWithAttendance(
+        req.params.id,
+        dateStr,
+        req.user!.role === 'admin' ? undefined : req.user!.id
+      );
       res.status(200).json({ success: true, data: result });
     } catch (err) {
       next(err);

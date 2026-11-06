@@ -108,6 +108,30 @@ export async function createAnnouncement(
   if (!title || !content || !scope) {
     throw new AppError('Title, content, and scope are required', 400);
   }
+  if (!['system', 'section', 'club'].includes(scope)) {
+    throw new AppError('Scope must be system, section or club', 400);
+  }
+  const author = await prisma.user.findUnique({ where: { id: authorId }, select: { role: true } });
+  if (!author) throw new AppError('Author not found', 404);
+  if (scope === 'system' && author.role !== 'admin') {
+    throw new AppError('Only administrators can publish system-wide announcements', 403);
+  }
+  if (scope === 'section') {
+    if (!scopeId) throw new AppError('A section ID is required for section announcements', 400);
+    const section = await prisma.classSection.findUnique({ where: { id: scopeId }, select: { facultyId: true } });
+    if (!section) throw new AppError('Section not found', 404);
+    if (author.role !== 'admin' && (author.role !== 'faculty' || section.facultyId !== authorId)) {
+      throw new AppError('Faculty can only publish announcements for their assigned sections', 403);
+    }
+  }
+  if (scope === 'club') {
+    if (!scopeId) throw new AppError('A club ID is required for club announcements', 400);
+    const club = await prisma.club.findUnique({ where: { id: scopeId }, select: { clubLeadId: true } });
+    if (!club) throw new AppError('Club not found', 404);
+    if (author.role !== 'admin' && (author.role !== 'club_lead' || club.clubLeadId !== authorId)) {
+      throw new AppError('Club members can only publish announcements for their own club', 403);
+    }
+  }
 
   const announcement = await prisma.announcement.create({
     data: {

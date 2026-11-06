@@ -17,7 +17,12 @@ export async function getEvents(filters: {
 }): Promise<Array<EventData & { isRegistered?: boolean }>> {
   const where: any = {};
 
-  if (filters.status) {
+  if (filters.studentId) {
+    const studentVisibleStatuses = [EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED];
+    where.status = filters.status && studentVisibleStatuses.includes(filters.status as EventStatus)
+      ? filters.status
+      : { in: studentVisibleStatuses };
+  } else if (filters.status) {
     where.status = filters.status;
   }
   if (filters.clubId) {
@@ -88,7 +93,7 @@ export async function getEventById(eventId: string, studentId?: string) {
     },
   });
 
-  if (!event) {
+  if (!event || (studentId && ![EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED].includes(event.status as EventStatus))) {
     throw new AppError('Event not found', 404);
   }
 
@@ -220,8 +225,8 @@ export async function registerForEvent(eventId: string, studentId: string) {
     throw new AppError('Event not found', 404);
   }
 
-  if (event.status === EventStatus.CANCELLED || event.status === EventStatus.REJECTED) {
-    throw new AppError(`Cannot register for an event that is ${event.status}`, 400);
+  if (![EventStatus.UPCOMING, EventStatus.ONGOING].includes(event.status as EventStatus)) {
+    throw new AppError('Registration is available only for approved upcoming or ongoing events', 400);
   }
 
   const existing = await prisma.eventRegistration.findUnique({
@@ -252,7 +257,7 @@ export async function registerForEvent(eventId: string, studentId: string) {
   return registration;
 }
 
-export async function getEventRegistrations(eventId: string) {
+export async function getEventRegistrations(eventId: string, requesterId: string) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
     include: { club: true },
@@ -261,6 +266,9 @@ export async function getEventRegistrations(eventId: string) {
   if (!event) {
     throw new AppError('Event not found', 404);
   }
+  const requester = await prisma.user.findUnique({ where: { id: requesterId }, select: { role: true } });
+  const isAuthorized = event.club.clubLeadId === requesterId || event.club.facultyCoordinatorId === requesterId || requester?.role === 'admin';
+  if (!isAuthorized) throw new AppError('Forbidden: you cannot view registrations for this club event', 403);
 
   const registrations = await prisma.eventRegistration.findMany({
     where: { eventId },
@@ -322,7 +330,7 @@ export async function markEventAttendance(
   }
 
   // Update attendance for the specified registrations
-  await prisma.eventRegistration.updateMany({
+  const updated = await prisma.eventRegistration.updateMany({
     where: {
       id: { in: registrationIds },
       eventId,
@@ -332,7 +340,7 @@ export async function markEventAttendance(
     },
   });
 
-  return { success: true, count: registrationIds.length };
+  return { success: true, count: updated.count };
 }
 
 export async function updateEventStatus(eventId: string, userId: string, status: string) {

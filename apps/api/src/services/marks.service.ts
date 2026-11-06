@@ -128,8 +128,22 @@ export async function uploadSectionMarks(
     throw new AppError('Forbidden: only the assigned faculty can upload marks for this section', 403);
   }
 
-  if (!examType || !Array.isArray(records) || records.length === 0) {
-    throw new AppError('Invalid marks payload: examType and records array are required', 400);
+  if (!examType || !Array.isArray(records) || records.length === 0 || records.length > 500) {
+    throw new AppError('Invalid marks payload: examType and between 1 and 500 records are required', 400);
+  }
+  const studentIds = records.map((record) => record.studentId);
+  if (studentIds.some((id) => typeof id !== 'string' || !id) || new Set(studentIds).size !== studentIds.length) {
+    throw new AppError('Mark records must contain unique, valid student IDs', 400);
+  }
+  if (records.some((record) => !Number.isFinite(Number(record.marks)) || !Number.isFinite(Number(record.maxMarks)) || Number(record.maxMarks) <= 0 || Number(record.marks) < 0 || Number(record.marks) > Number(record.maxMarks))) {
+    throw new AppError('Marks must be numeric and between 0 and maxMarks', 400);
+  }
+  const enrollments = await prisma.enrollment.findMany({
+    where: { sectionId, studentId: { in: studentIds } },
+    select: { studentId: true },
+  });
+  if (enrollments.length !== studentIds.length) {
+    throw new AppError('Marks can only be uploaded for students enrolled in this section', 400);
   }
 
   await prisma.$transaction(

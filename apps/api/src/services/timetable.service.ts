@@ -7,30 +7,19 @@ export async function getUserTimetable(userId: string, role: string): Promise<Ti
   if (role === 'faculty') {
     sections = await prisma.classSection.findMany({
       where: { facultyId: userId },
-      include: {
-        course: true,
-        faculty: true,
-      },
+      include: { course: true, faculty: true },
       orderBy: { slot: 'asc' },
     });
   } else {
-    // For students and club leads (who are students)
     const enrollments = await prisma.enrollment.findMany({
       where: { studentId: userId },
-      include: {
-        section: {
-          include: {
-            course: true,
-            faculty: true,
-          },
-        },
-      },
+      include: { section: { include: { course: true, faculty: true } } },
     });
-    sections = enrollments.map((e) => e.section);
+    sections = enrollments.map((enrollment) => enrollment.section);
   }
 
   return sections.map((section) => {
-    const slotTime = SLOT_TIMES[section.slot] || { start: '09:00', end: '10:00' };
+    const slotTime = SLOT_TIMES[section.slot];
     return {
       id: section.id,
       courseCode: section.course.code,
@@ -39,8 +28,9 @@ export async function getUserTimetable(userId: string, role: string): Promise<Ti
       slot: section.slot,
       room: section.room,
       facultyName: section.faculty.name,
-      startTime: slotTime.start,
-      endTime: slotTime.end,
+      // Unknown slots remain visibly unknown instead of being shown as 09:00–10:00.
+      startTime: slotTime?.start || '—',
+      endTime: slotTime?.end || '—',
     };
   });
 }
@@ -49,28 +39,18 @@ export async function getTodayTimetable(userId: string, role: string): Promise<T
   const allEntries = await getUserTimetable(userId, role);
   if (allEntries.length === 0) return [];
 
-  const dayOfWeek = new Date().getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
-
-  // SRM-style slot to day distribution
+  const dayOfWeek = new Date().getDay();
   const daySlotLetters: Record<number, string[]> = {
-    1: ['A', 'B'], // Monday
-    2: ['B', 'C'], // Tuesday
-    3: ['C', 'D'], // Wednesday
-    4: ['D', 'E'], // Thursday
-    5: ['E', 'F', 'A'], // Friday
-    6: ['A', 'B'], // Saturday (weekend fallback)
-    0: ['A', 'C'], // Sunday (weekend fallback)
+    1: ['A', 'B'],
+    2: ['B', 'C'],
+    3: ['C', 'D'],
+    4: ['D', 'E'],
+    5: ['E', 'F', 'A'],
+    6: ['A', 'B'],
+    0: ['A', 'C'],
   };
+  const allowedLetters = daySlotLetters[dayOfWeek] || [];
 
-  const allowedLetters = daySlotLetters[dayOfWeek] || ['A', 'B', 'C'];
-  const todayEntries = allEntries.filter((entry) =>
-    allowedLetters.some((letter) => entry.slot.startsWith(letter))
-  );
-
-  // If today has no matches (e.g. non-matching slot codes), return first entries so UI is populated
-  if (todayEntries.length === 0) {
-    return allEntries.slice(0, 3);
-  }
-
-  return todayEntries;
+  // Do not fabricate today's classes when there is no matching slot.
+  return allEntries.filter((entry) => allowedLetters.some((letter) => entry.slot.startsWith(letter)));
 }

@@ -7,11 +7,8 @@ interface UsePollingOptions {
   enabled?: boolean;
 }
 
-export function usePolling(
-  callback: () => void | Promise<void>,
-  options: UsePollingOptions = {}
-) {
-  const { interval = 3000, enabled = true } = options;
+export function usePolling(callback: () => void | Promise<void>, options: UsePollingOptions = {}) {
+  const { interval = 5000, enabled = true } = options;
   const savedCallback = useRef(callback);
 
   useEffect(() => {
@@ -21,13 +18,29 @@ export function usePolling(
   useEffect(() => {
     if (!enabled) return;
 
-    // Run callback immediately
-    savedCallback.current();
+    let active = true;
+    let running = false;
 
-    const id = setInterval(() => {
-      savedCallback.current();
-    }, interval);
+    const tick = async () => {
+      if (!active || running) return;
+      running = true;
+      try {
+        await savedCallback.current();
+      } catch (error) {
+        // Polling failures should not become unhandled promise rejections or
+        // permanently stop future refreshes. Callers can also surface errors.
+        console.error('[Polling] Refresh failed:', error);
+      } finally {
+        running = false;
+      }
+    };
 
-    return () => clearInterval(id);
+    void tick();
+    const timer = setInterval(() => void tick(), Math.max(interval, 1000));
+
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [interval, enabled]);
 }

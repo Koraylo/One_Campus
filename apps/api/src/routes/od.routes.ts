@@ -12,7 +12,7 @@ import { authenticate, authorize } from '../middleware/auth';
 const router = Router();
 
 // POST /api/od/request (Student submits OD request)
-router.post('/request', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/request', authenticate, authorize('student', 'club_lead'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { eventId, sectionIds, requestedDate, reason } = req.body;
     if (!sectionIds || !requestedDate) {
@@ -41,7 +41,7 @@ router.post('/request', authenticate, async (req: Request, res: Response, next: 
 });
 
 // POST /api/od/ml-request (Student submits ML request)
-router.post('/ml-request', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/ml-request', authenticate, authorize('student', 'club_lead'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { sectionIds, requestedDate, reason } = req.body;
     if (!sectionIds || !requestedDate) {

@@ -116,7 +116,7 @@ router.patch(
 );
 
 // POST /api/events/:id/register (Student registers for event)
-router.post('/:id/register', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/register', authenticate, authorize('student', 'club_lead'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const registration = await registerForEvent(req.params.id, req.user!.id);
     res.status(201).json({
@@ -136,7 +136,7 @@ router.get(
   authorize('club_lead', 'faculty', 'admin'),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const data = await getEventRegistrations(req.params.id);
+      const data = await getEventRegistrations(req.params.id, req.user!.id);
       res.status(200).json({ success: true, data });
     } catch (err) {
       next(err);
@@ -152,10 +152,10 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { registrationIds } = req.body;
-      if (!Array.isArray(registrationIds)) {
+      if (!Array.isArray(registrationIds) || registrationIds.some((id) => typeof id !== 'string' || !id) || new Set(registrationIds).size !== registrationIds.length) {
         res.status(400).json({
           success: false,
-          error: 'registrationIds must be an array of IDs',
+          error: 'registrationIds must be an array of unique, valid IDs',
         });
         return;
       }
