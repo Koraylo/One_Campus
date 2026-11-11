@@ -427,7 +427,6 @@ async function main() {
     const batch = attendanceList.slice(i, i + 100);
     await prisma.attendance.createMany({
       data: batch,
-      skipDuplicates: true,
     });
   }
 

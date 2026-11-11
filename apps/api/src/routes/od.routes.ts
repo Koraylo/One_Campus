@@ -5,6 +5,7 @@ import {
   getPendingRequestsForFaculty,
   approveODRequest,
   rejectODRequest,
+  bulkApproveODRequests,
   getStudentODRequests,
 } from '../services/od.service';
 import { authenticate, authorize } from '../middleware/auth';
@@ -77,6 +78,26 @@ router.get(
     try {
       const pending = await getPendingRequestsForFaculty(req.user!.id);
       res.status(200).json({ success: true, data: pending });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/od/bulk-approve (Faculty/Admin bulk approves OD/ML)
+router.patch(
+  '/bulk-approve',
+  authenticate,
+  authorize('faculty', 'admin'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { requestIds, sectionId } = req.body;
+      const result = await bulkApproveODRequests(req.user!.id, { requestIds, sectionId });
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: `Successfully approved ${result.count} request(s).`,
+      });
     } catch (err) {
       next(err);
     }

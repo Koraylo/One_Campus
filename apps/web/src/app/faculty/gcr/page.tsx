@@ -1,51 +1,54 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  FolderGit2,
   ExternalLink,
+  BookOpen,
   CheckCircle2,
   RefreshCw,
-  Users,
-  BookOpen,
+  FolderOpen,
+  AlertCircle,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { api } from '@/lib/api';
+
+interface GCRSectionItem {
+  id: string;
+  sectionId: string;
+  sectionName: string;
+  courseCode?: string;
+  courseName?: string;
+  gcrCourseId: string;
+  syncStatus: string;
+  lastSynced?: string;
+  courseUrl: string;
+}
 
 export default function FacultyGCRPage() {
-  const gcrMappings = [
-    {
-      id: 'gcr-f1',
-      code: 'CS301-A',
-      name: 'Data Structures & Algorithms (Sec A)',
-      gcrId: 'c/NTE4ODkxMzUzMTIz',
-      enrolled: 64,
-      status: 'Synchronized',
-      url: 'https://classroom.google.com',
-      lastSync: '12 mins ago',
-    },
-    {
-      id: 'gcr-f2',
-      code: 'CS301-B',
-      name: 'Data Structures & Algorithms (Sec B)',
-      gcrId: 'c/NTA3Mjg1ODU0NzY1',
-      enrolled: 62,
-      status: 'Synchronized',
-      url: 'https://classroom.google.com',
-      lastSync: '25 mins ago',
-    },
-    {
-      id: 'gcr-f3',
-      code: 'CS402-A',
-      name: 'Advanced Algorithms Lab',
-      gcrId: 'c/NTM4MjAxOTI4MTk1',
-      enrolled: 38,
-      status: 'Synchronized',
-      url: 'https://classroom.google.com',
-      lastSync: '1 hour ago',
-    },
-  ];
+  const [loading, setLoading] = useState(true);
+  const [sections, setSections] = useState<GCRSectionItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchGCR = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await api.get<{ success: boolean; data: GCRSectionItem[] }>('/api/gcr/my-sections');
+      if (res.data) {
+        setSections(res.data);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch GCR sections.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchGCR();
+  }, [fetchGCR]);
 
   return (
     <div className="space-y-6">
@@ -56,77 +59,99 @@ export default function FacultyGCRPage() {
             Google Classroom (GCR) Course Links
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Manage synced classroom IDs, roster synchronization, and external course folders.
+            Launch directly into Google Classroom to manage coursework, upload materials, and grade assignments.
           </p>
         </div>
 
         <Button
           variant="outline"
+          size="sm"
+          onClick={fetchGCR}
+          disabled={loading}
           className="text-xs h-9 gap-1.5 border-gray-200"
-          onClick={() => alert('Synchronizing student rosters with Google Classroom API...')}
         >
-          <RefreshCw className="w-3.5 h-3.5 text-campus-green-600" />
-          <span>Sync All Roster Data</span>
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <span>Reload Mappings</span>
         </Button>
       </div>
 
-      {/* Course Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {gcrMappings.map((cls) => (
-          <Card
-            key={cls.id}
-            className="border-gray-200 shadow-sm flex flex-col justify-between overflow-hidden hover:shadow-md transition-shadow"
-          >
-            <div className="p-5 space-y-4">
-              <div className="flex items-start justify-between gap-2">
-                <span className="text-xs font-mono font-bold text-campus-green-700 bg-campus-green-50 px-2 py-0.5 rounded border border-campus-green-200">
-                  {cls.code}
-                </span>
-                <Badge variant="present" className="text-[10px] gap-1">
-                  <CheckCircle2 className="w-3 h-3" />
-                  {cls.status}
-                </Badge>
-              </div>
+      {error && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 flex items-center gap-2 text-sm">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
-              <div>
-                <h3 className="font-bold text-base text-gray-900 leading-snug">
-                  {cls.name}
-                </h3>
-                <p className="text-xs font-mono text-gray-500 mt-1">
-                  Classroom ID: {cls.gcrId}
-                </p>
-              </div>
+      {/* Linked Courses Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {loading ? (
+          <div className="col-span-full p-12 text-center text-sm text-muted-foreground">
+            <RefreshCw className="w-8 h-8 text-campus-green-600 animate-spin mx-auto mb-2" />
+            Loading Google Classroom course mappings...
+          </div>
+        ) : sections.length === 0 ? (
+          <div className="col-span-full p-12 text-center text-sm text-muted-foreground bg-white rounded-xl border border-gray-200">
+            No Google Classroom sections mapped for your assigned classes.
+          </div>
+        ) : (
+          sections.map((course) => (
+            <Card
+              key={course.id}
+              className="border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col justify-between"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-200 font-bold mb-1">
+                      {course.courseCode || 'ACAD'}
+                    </Badge>
+                    <h3 className="font-bold text-gray-900 text-base leading-snug">
+                      {course.courseName || 'Teaching Section'}
+                    </h3>
+                    <p className="text-xs text-gray-500 font-medium">
+                      Section {course.sectionName}
+                    </p>
+                  </div>
 
-              <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
-                <div className="flex items-center gap-1.5 font-medium text-gray-700">
-                  <Users className="w-3.5 h-3.5 text-gray-400" />
-                  <span>{cls.enrolled} Roster Students</span>
+                  <Badge variant="outline" className="text-[10px] text-emerald-700 bg-emerald-50 border-emerald-200 gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>{course.syncStatus}</span>
+                  </Badge>
                 </div>
-                <span className="text-[11px] text-gray-400">
-                  Synced {cls.lastSync}
-                </span>
-              </div>
-            </div>
 
-            <div className="p-4 bg-gray-50/80 border-t border-gray-100 flex items-center justify-between">
-              <span className="text-xs text-gray-400">Single Sign-On Linked</span>
-              <a
-                href={cls.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex"
-              >
-                <Button
-                  size="sm"
-                  className="bg-campus-green-950 hover:bg-campus-green-800 text-white text-xs h-8 gap-1.5"
+                <div className="p-3 bg-gray-50 rounded-xl space-y-1.5 text-xs text-gray-600 border border-gray-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-500">Classroom ID:</span>
+                    <span className="font-mono text-gray-800">{course.gcrCourseId}</span>
+                  </div>
+                  {course.lastSynced && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-500">Last Synced:</span>
+                      <span className="text-gray-700">{course.lastSynced.split('T')[0]}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50/50 border-t border-gray-100 flex items-center justify-end">
+                <a
+                  href={course.courseUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Open in GCR</span>
-                </Button>
-              </a>
-            </div>
-          </Card>
-        ))}
+                  <Button
+                    size="sm"
+                    className="w-full sm:w-auto bg-campus-green-950 hover:bg-campus-green-800 text-white text-xs h-8 gap-1.5"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open in Classroom</span>
+                  </Button>
+                </a>
+              </div>
+            </Card>
+          ))
+        )}
       </div>
     </div>
   );

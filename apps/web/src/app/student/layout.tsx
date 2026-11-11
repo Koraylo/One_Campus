@@ -10,7 +10,10 @@ import { Role, ROLE_PORTAL_MAP } from '@koraylo/shared';
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const hasAccess = user?.role === Role.STUDENT || user?.role === Role.ADMIN;
+  const hasAccess =
+    user?.role === Role.STUDENT ||
+    user?.role === Role.ADMIN ||
+    user?.role === Role.CLUB_LEAD;
 
   useEffect(() => {
     if (loading) return;

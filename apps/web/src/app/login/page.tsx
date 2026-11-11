@@ -50,14 +50,17 @@ export default function LoginPage() {
   // Quick test demo helper
   const handleQuickLogin = (demoRole: Role) => {
     if (demoRole === Role.STUDENT) {
-      setEmail('student@campus.edu');
-      setPassword('password123');
+      setEmail('abhinav@srm.edu');
+      setPassword('campus123');
     } else if (demoRole === Role.FACULTY) {
-      setEmail('faculty@campus.edu');
-      setPassword('password123');
+      setEmail('s.iyer@srm.edu');
+      setPassword('campus123');
     } else if (demoRole === Role.CLUB_LEAD) {
-      setEmail('club@campus.edu');
-      setPassword('password123');
+      setEmail('riya.cse@srm.edu');
+      setPassword('campus123');
+    } else if (demoRole === Role.ADMIN) {
+      setEmail('admin@srm.edu');
+      setPassword('campus123');
     }
   };
 
@@ -225,12 +228,12 @@ export default function LoginPage() {
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground text-center mb-3">
               Quick Demo Fill
             </p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="text-xs border-emerald-200 hover:bg-emerald-50 text-emerald-800"
+                className="text-xs border-emerald-200 hover:bg-emerald-50 text-emerald-800 px-1"
                 onClick={() => handleQuickLogin(Role.STUDENT)}
               >
                 Student
@@ -239,7 +242,7 @@ export default function LoginPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="text-xs border-blue-200 hover:bg-blue-50 text-blue-800"
+                className="text-xs border-blue-200 hover:bg-blue-50 text-blue-800 px-1"
                 onClick={() => handleQuickLogin(Role.FACULTY)}
               >
                 Faculty
@@ -248,10 +251,19 @@ export default function LoginPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="text-xs border-amber-200 hover:bg-amber-50 text-amber-800"
+                className="text-xs border-amber-200 hover:bg-amber-50 text-amber-800 px-1"
                 onClick={() => handleQuickLogin(Role.CLUB_LEAD)}
               >
                 Club Lead
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-xs border-purple-200 hover:bg-purple-50 text-purple-800 px-1"
+                onClick={() => handleQuickLogin(Role.ADMIN)}
+              >
+                Admin
               </Button>
             </div>
           </div>

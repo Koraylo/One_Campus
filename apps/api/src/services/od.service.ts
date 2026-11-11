@@ -247,6 +247,80 @@ export async function approveODRequest(requestId: string, facultyId: string) {
   return updatedRequest;
 }
 
+export async function bulkApproveODRequests(
+  facultyId: string,
+  options: { requestIds?: string[]; sectionId?: string }
+) {
+  const reviewer = await prisma.user.findUnique({ where: { id: facultyId }, select: { role: true } });
+  const isAdmin = reviewer?.role === 'admin';
+
+  const where: any = { status: ODRequestStatus.PENDING };
+  if (options.requestIds && options.requestIds.length > 0) {
+    where.id = { in: options.requestIds };
+  }
+  if (options.sectionId) {
+    where.sectionId = options.sectionId;
+  }
+  if (!isAdmin) {
+    where.OR = [
+      { requestType: ODRequestType.OD, section: { facultyId } },
+      { requestType: ODRequestType.ML, section: { advisorId: facultyId } },
+    ];
+  }
+
+  const pendingRequests = await prisma.oDRequest.findMany({
+    where,
+    include: { section: true },
+  });
+
+  if (pendingRequests.length === 0) {
+    return { count: 0, approvedIds: [] };
+  }
+
+  const operations: any[] = [];
+  const approvedIds: string[] = [];
+
+  for (const req of pendingRequests) {
+    approvedIds.push(req.id);
+    operations.push(
+      prisma.oDRequest.update({
+        where: { id: req.id },
+        data: {
+          status: ODRequestStatus.APPROVED,
+          approverId: facultyId,
+        },
+      })
+    );
+    operations.push(
+      prisma.attendance.upsert({
+        where: {
+          studentId_sectionId_date: {
+            studentId: req.studentId,
+            sectionId: req.sectionId,
+            date: req.requestedDate,
+          },
+        },
+        create: {
+          studentId: req.studentId,
+          sectionId: req.sectionId,
+          date: req.requestedDate,
+          status: req.requestType,
+        },
+        update: {
+          status: req.requestType,
+        },
+      })
+    );
+  }
+
+  await prisma.$transaction(operations);
+
+  return {
+    count: approvedIds.length,
+    approvedIds,
+  };
+}
+
 export async function rejectODRequest(requestId: string, facultyId: string) {
   const odRequest = await prisma.oDRequest.findUnique({
     where: { id: requestId },

@@ -6,7 +6,9 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "db:generate": "turbo db:generate",
+    "db:generate:sqlite": "turbo db:generate:sqlite",
     "db:push": "turbo db:push",
+    "db:push:sqlite": "turbo db:push:sqlite",
     "db:seed": "turbo db:seed"
   },
   "devDependencies": {

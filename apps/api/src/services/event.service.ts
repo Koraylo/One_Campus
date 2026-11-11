@@ -186,6 +186,50 @@ export async function approveEvent(eventId: string, facultyId: string) {
     include: { club: true },
   });
 
+  // CLUB-8: Auto-create time-boxed event channel on approval
+  try {
+    const existingChannel = await prisma.channel.findFirst({
+      where: { type: 'event', referenceId: eventId },
+    });
+    if (!existingChannel) {
+      const slug = event.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40);
+      const newChannel = await prisma.channel.create({
+        data: {
+          name: `evt-${slug}`,
+          type: 'event',
+          referenceId: eventId,
+          readOnly: false,
+        },
+      });
+
+      const memberIds = Array.from(
+        new Set([event.createdById, event.club.facultyCoordinatorId, event.club.clubLeadId])
+      );
+      for (const uid of memberIds) {
+        await prisma.channelMember.upsert({
+          where: {
+            channelId_userId: {
+              channelId: newChannel.id,
+              userId: uid,
+            },
+          },
+          create: {
+            channelId: newChannel.id,
+            userId: uid,
+            canPost: true,
+          },
+          update: {},
+        });
+      }
+    }
+  } catch (channelErr) {
+    console.error('Failed to auto-create event channel:', channelErr);
+  }
+
   return updatedEvent;
 }
 
@@ -253,6 +297,31 @@ export async function registerForEvent(eventId: string, studentId: string) {
       student: { select: { id: true, name: true, email: true } },
     },
   });
+
+  // CLUB-8: Auto-join registrant to the event channel
+  try {
+    const eventChannel = await prisma.channel.findFirst({
+      where: { type: 'event', referenceId: eventId },
+    });
+    if (eventChannel) {
+      await prisma.channelMember.upsert({
+        where: {
+          channelId_userId: {
+            channelId: eventChannel.id,
+            userId: studentId,
+          },
+        },
+        create: {
+          channelId: eventChannel.id,
+          userId: studentId,
+          canPost: true,
+        },
+        update: {},
+      });
+    }
+  } catch (channelErr) {
+    console.error('Failed to auto-add registrant to event channel:', channelErr);
+  }
 
   return registration;
 }

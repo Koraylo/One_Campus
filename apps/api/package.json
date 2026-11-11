@@ -5,8 +5,12 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "start": "node dist/apps/api/src/index.js",
+    "lint": "tsc --noEmit",
     "db:generate": "prisma generate",
+    "db:generate:sqlite": "prisma generate --schema=prisma/schema.sqlite.prisma",
     "db:push": "prisma db push",
+    "db:push:sqlite": "prisma db push --schema=prisma/schema.sqlite.prisma",
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {

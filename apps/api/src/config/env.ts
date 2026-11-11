@@ -7,23 +7,23 @@ dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 
 const isProduction = process.env.NODE_ENV === 'production';
-const jwtSecret = process.env.JWT_SECRET?.trim();
-const databaseUrl = process.env.DATABASE_URL?.trim();
-const directUrl = process.env.DIRECT_URL?.trim();
+const databaseUrl =
+  process.env.DATABASE_URL?.trim() ||
+  (!isProduction ? 'file:./dev.db' : undefined);
+const directUrl = process.env.DIRECT_URL?.trim() || databaseUrl;
+const jwtSecret =
+  process.env.JWT_SECRET?.trim() ||
+  (!isProduction ? 'campus-portal-dev-secret-key-32chars-minimum-token' : undefined);
 
 if (!databaseUrl) {
-  throw new Error('DATABASE_URL is required. Configure the Supabase pooled PostgreSQL URL in the root .env or apps/api/.env file.');
-}
-
-if (!directUrl) {
-  throw new Error('DIRECT_URL is required. Configure the Supabase direct/session connection URL for Prisma migrations.');
+  throw new Error('DATABASE_URL is required. Configure the PostgreSQL/SQLite URL in .env or apps/api/.env.');
 }
 
 if (!jwtSecret) {
   throw new Error('JWT_SECRET is required. Generate a unique secret and set it in your local environment.');
 }
 
-if (isProduction && jwtSecret.length <  32) {
+if (isProduction && jwtSecret.length < 32) {
   throw new Error('JWT_SECRET must contain at least 32 characters in production.');
 }
 

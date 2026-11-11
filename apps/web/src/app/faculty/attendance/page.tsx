@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   CalendarCheck,
   CheckCircle2,
@@ -10,6 +10,7 @@ import {
   Check,
   X,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,38 +25,97 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { AttendanceStatus } from '@koraylo/shared';
+import { api } from '@/lib/api';
 
-interface StudentAttendanceRow {
-  rollNo: string;
+interface FacultySection {
+  id: string;
+  courseCode: string;
+  courseName: string;
+  sectionName: string;
+  slot: string;
+  room: string;
+}
+
+interface StudentRosterItem {
+  id: string;
   name: string;
-  status: AttendanceStatus;
+  email: string;
+  department?: string;
+  year?: number;
+  section?: string;
+  status: AttendanceStatus | null;
 }
 
 export default function FacultyAttendancePage() {
-  const [selectedSection, setSelectedSection] = useState('CS301-A');
+  const [sections, setSections] = useState<FacultySection[]>([]);
+  const [selectedSectionId, setSelectedSectionId] = useState('');
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split('T')[0]
   );
-  const [selectedSlot, setSelectedSlot] = useState('09:00 - 10:00 AM');
+  const [roster, setRoster] = useState<StudentRosterItem[]>([]);
+  const [loadingSections, setLoadingSections] = useState(true);
+  const [loadingRoster, setLoadingRoster] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  const [roster, setRoster] = useState<StudentAttendanceRow[]>([
-    { rollNo: '22CS001', name: 'Aarav Sharma', status: AttendanceStatus.PRESENT },
-    { rollNo: '22CS015', name: 'Aditya Rao', status: AttendanceStatus.PRESENT },
-    { rollNo: '22CS028', name: 'Ananya Deshmukh', status: AttendanceStatus.ABSENT },
-    { rollNo: '22CS034', name: 'Devendra Joshi', status: AttendanceStatus.PRESENT },
-    { rollNo: '22CS042', name: 'Karthik Raja', status: AttendanceStatus.PRESENT },
-    { rollNo: '22CS059', name: 'Megha Iyer', status: AttendanceStatus.PRESENT },
-    { rollNo: '22CS071', name: 'Naveen Kumar', status: AttendanceStatus.OD },
-    { rollNo: '22CS084', name: 'Rohit Verma', status: AttendanceStatus.PRESENT },
-    { rollNo: '22CS095', name: 'Sanya Mirza', status: AttendanceStatus.PRESENT },
-    { rollNo: '22CS112', name: 'Priya Sundaram', status: AttendanceStatus.ML },
-  ]);
+  // 1. Fetch faculty sections
+  useEffect(() => {
+    async function fetchSections() {
+      try {
+        setLoadingSections(true);
+        const res = await api.get<{ success: boolean; data: FacultySection[] }>('/api/timetable/my');
+        if (res.data && res.data.length > 0) {
+          setSections(res.data);
+          setSelectedSectionId(res.data[0].id);
+        }
+      } catch (err: any) {
+        setError(err.message || 'Failed to load faculty sections.');
+      } finally {
+        setLoadingSections(false);
+      }
+    }
+    fetchSections();
+  }, []);
 
-  const updateStatus = (rollNo: string, newStatus: AttendanceStatus) => {
+  // 2. Fetch section roster for chosen date
+  const fetchRoster = useCallback(async () => {
+    if (!selectedSectionId) return;
+    try {
+      setLoadingRoster(true);
+      setError(null);
+      const res = await api.get<{
+        success: boolean;
+        data: {
+          section: any;
+          date: string;
+          students: StudentRosterItem[];
+        };
+      }>(`/api/attendance/section/${selectedSectionId}/students?date=${selectedDate}`);
+
+      if (res.data?.students) {
+        setRoster(
+          res.data.students.map((s) => ({
+            ...s,
+            status: s.status || AttendanceStatus.PRESENT,
+          }))
+        );
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load section students.');
+    } finally {
+      setLoadingRoster(false);
+    }
+  }, [selectedSectionId, selectedDate]);
+
+  useEffect(() => {
+    fetchRoster();
+  }, [fetchRoster]);
+
+  const updateStatus = (studentId: string, newStatus: AttendanceStatus) => {
     setRoster((prev) =>
-      prev.map((r) => (r.rollNo === rollNo ? { ...r, status: newStatus } : r))
+      prev.map((r) => (r.id === studentId ? { ...r, status: newStatus } : r))
     );
   };
 
@@ -65,14 +125,33 @@ export default function FacultyAttendancePage() {
     );
   };
 
-  const handleSave = () => {
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+  const handleSave = async () => {
+    if (!selectedSectionId || roster.length === 0) return;
+    try {
+      setSaving(true);
+      setError(null);
+      const records = roster.map((s) => ({
+        studentId: s.id,
+        status: s.status || AttendanceStatus.PRESENT,
+      }));
+
+      const res = await api.post('/api/attendance/mark', {
+        sectionId: selectedSectionId,
+        date: selectedDate,
+        records,
+      });
+
+      setStatusMessage(res.message || `Successfully marked attendance for ${records.length} students.`);
       setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
-    }, 800);
+      setTimeout(() => setSavedSuccess(false), 3500);
+    } catch (err: any) {
+      setError(err.message || 'Failed to save attendance.');
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const selectedSectionObj = sections.find((s) => s.id === selectedSectionId);
 
   const presentCount = roster.filter((r) => r.status === AttendanceStatus.PRESENT).length;
   const absentCount = roster.filter((r) => r.status === AttendanceStatus.ABSENT).length;
@@ -88,11 +167,23 @@ export default function FacultyAttendancePage() {
             Record Class Attendance
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Select section and period slot, then toggle attendance states for registered students.
+            Select section and date, then toggle attendance states for registered students and submit to institutional records.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={fetchRoster}
+            disabled={loadingRoster}
+            className="text-xs h-9 gap-1.5"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loadingRoster ? 'animate-spin' : ''}`} />
+            <span>Reload Roster</span>
+          </Button>
+
           <Button
             type="button"
             variant="outline"
@@ -106,7 +197,7 @@ export default function FacultyAttendancePage() {
           <Button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || roster.length === 0}
             className="bg-campus-green-950 hover:bg-campus-green-800 text-white gap-2 text-xs h-9"
           >
             <Save className="w-3.5 h-3.5" />
@@ -119,162 +210,204 @@ export default function FacultyAttendancePage() {
         <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-            <span>Attendance for {selectedSection} ({selectedSlot}) submitted and stored successfully.</span>
+            <span>{statusMessage || 'Attendance submitted successfully! Records synchronized to database.'}</span>
           </div>
         </div>
       )}
 
-      {/* Control Bar: Section, Date, Slot */}
-      <Card className="p-4 border-gray-200 shadow-xs bg-white">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase text-gray-700">
-              Assigned Section
-            </label>
-            <select
-              value={selectedSection}
-              onChange={(e) => setSelectedSection(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-campus-green-600 font-medium"
-            >
-              <option value="CS301-A">CS301 - Sec A (Data Structures)</option>
-              <option value="CS301-B">CS301 - Sec B (Data Structures)</option>
-              <option value="CS402-A">CS402 - Advanced Algorithms Lab</option>
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase text-gray-700">
-              Class Date
-            </label>
-            <Input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="h-10"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase text-gray-700">
-              Period Slot
-            </label>
-            <select
-              value={selectedSlot}
-              onChange={(e) => setSelectedSlot(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-campus-green-600 font-medium"
-            >
-              <option value="09:00 - 10:00 AM">Slot 1: 09:00 - 10:00 AM</option>
-              <option value="10:15 - 11:15 AM">Slot 2: 10:15 - 11:15 AM</option>
-              <option value="11:30 - 12:30 PM">Slot 3: 11:30 - 12:30 PM</option>
-              <option value="02:00 - 04:00 PM">Lab Slot: 02:00 - 04:00 PM</option>
-            </select>
-          </div>
+      {error && (
+        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 flex items-center gap-2 text-sm">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{error}</span>
         </div>
+      )}
+
+      {/* Control Filters */}
+      <Card className="border-gray-200 shadow-sm">
+        <CardContent className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase text-gray-700">
+                Class Section
+              </label>
+              <select
+                value={selectedSectionId}
+                onChange={(e) => setSelectedSectionId(e.target.value)}
+                className="w-full h-10 rounded-md border border-input bg-transparent px-3 text-sm focus:outline-none focus:ring-2 focus:ring-campus-green-600"
+                disabled={loadingSections}
+              >
+                {sections.length === 0 ? (
+                  <option value="">No sections assigned</option>
+                ) : (
+                  sections.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.courseCode} · {s.courseName} ({s.sectionName})
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase text-gray-700">
+                Attendance Date
+              </label>
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="h-10"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase text-gray-700">
+                Slot & Room
+              </label>
+              <div className="h-10 px-3 flex items-center bg-gray-50 border border-gray-200 rounded-md text-sm text-gray-700">
+                <Clock className="w-4 h-4 text-gray-400 mr-2 shrink-0" />
+                <span>
+                  {selectedSectionObj ? `${selectedSectionObj.slot} · ${selectedSectionObj.room}` : '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
       </Card>
 
-      {/* Attendance Stats Counter */}
+      {/* Stats Summary Chips */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
-          <span className="text-xs text-emerald-800 font-semibold uppercase">Present</span>
-          <span className="text-2xl font-bold text-emerald-700 block">{presentCount}</span>
+        <div className="p-3.5 bg-emerald-50 rounded-xl border border-emerald-100 flex items-center justify-between">
+          <div>
+            <span className="text-xs font-medium text-emerald-800 block">Present</span>
+            <span className="text-2xl font-bold text-emerald-700">{presentCount}</span>
+          </div>
+          <Check className="w-6 h-6 text-emerald-500 opacity-60" />
         </div>
-        <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-center">
-          <span className="text-xs text-rose-800 font-semibold uppercase">Absent</span>
-          <span className="text-2xl font-bold text-rose-700 block">{absentCount}</span>
+
+        <div className="p-3.5 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between">
+          <div>
+            <span className="text-xs font-medium text-rose-800 block">Absent</span>
+            <span className="text-2xl font-bold text-rose-700">{absentCount}</span>
+          </div>
+          <X className="w-6 h-6 text-rose-500 opacity-60" />
         </div>
-        <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-center">
-          <span className="text-xs text-amber-800 font-semibold uppercase">On-Duty (OD)</span>
-          <span className="text-2xl font-bold text-amber-700 block">{odCount}</span>
+
+        <div className="p-3.5 bg-amber-50 rounded-xl border border-amber-100 flex items-center justify-between">
+          <div>
+            <span className="text-xs font-medium text-amber-800 block">On-Duty (OD)</span>
+            <span className="text-2xl font-bold text-amber-700">{odCount}</span>
+          </div>
+          <CalendarCheck className="w-6 h-6 text-amber-500 opacity-60" />
         </div>
-        <div className="p-3 bg-blue-50 rounded-xl border border-blue-200 text-center">
-          <span className="text-xs text-blue-800 font-semibold uppercase">Medical (ML)</span>
-          <span className="text-2xl font-bold text-blue-700 block">{mlCount}</span>
+
+        <div className="p-3.5 bg-blue-50 rounded-xl border border-blue-100 flex items-center justify-between">
+          <div>
+            <span className="text-xs font-medium text-blue-800 block">Medical Leave (ML)</span>
+            <span className="text-2xl font-bold text-blue-700">{mlCount}</span>
+          </div>
+          <Users className="w-6 h-6 text-blue-500 opacity-60" />
         </div>
       </div>
 
-      {/* Roster Attendance Marking Table */}
+      {/* Roster Table */}
       <Card className="border-gray-200 shadow-sm">
-        <CardContent className="p-0">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base font-bold text-gray-900">
+              Student Roster ({roster.length} enrolled)
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Click status pills to mark attendance for {selectedDate}.
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Roll Number</TableHead>
                 <TableHead>Student Name</TableHead>
-                <TableHead className="text-center">Current Status</TableHead>
-                <TableHead className="text-right">Set Attendance State</TableHead>
+                <TableHead>Email / Identifier</TableHead>
+                <TableHead>Department / Year</TableHead>
+                <TableHead className="text-right">Attendance Marking</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {roster.map((student) => (
-                <TableRow key={student.rollNo}>
-                  <TableCell className="font-mono font-bold text-gray-900">
-                    {student.rollNo}
-                  </TableCell>
-                  <TableCell className="font-medium text-gray-800">
-                    {student.name}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Badge
-                      variant={
-                        student.status === AttendanceStatus.PRESENT
-                          ? 'present'
-                          : student.status === AttendanceStatus.ABSENT
-                          ? 'absent'
-                          : student.status === AttendanceStatus.OD
-                          ? 'od'
-                          : 'ml'
-                      }
-                      className="text-xs font-semibold px-2.5"
-                    >
-                      {student.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50 gap-0.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={student.status === AttendanceStatus.PRESENT ? 'campus' : 'ghost'}
-                        onClick={() => updateStatus(student.rollNo, AttendanceStatus.PRESENT)}
-                        className="h-7 px-2.5 text-xs font-medium"
-                      >
-                        P
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={student.status === AttendanceStatus.ABSENT ? 'destructive' : 'ghost'}
-                        onClick={() => updateStatus(student.rollNo, AttendanceStatus.ABSENT)}
-                        className="h-7 px-2.5 text-xs font-medium"
-                      >
-                        A
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={student.status === AttendanceStatus.OD ? 'secondary' : 'ghost'}
-                        onClick={() => updateStatus(student.rollNo, AttendanceStatus.OD)}
-                        className={`h-7 px-2.5 text-xs font-medium ${
-                          student.status === AttendanceStatus.OD ? 'bg-amber-100 text-amber-800' : ''
-                        }`}
-                      >
-                        OD
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={student.status === AttendanceStatus.ML ? 'secondary' : 'ghost'}
-                        onClick={() => updateStatus(student.rollNo, AttendanceStatus.ML)}
-                        className={`h-7 px-2.5 text-xs font-medium ${
-                          student.status === AttendanceStatus.ML ? 'bg-blue-100 text-blue-800' : ''
-                        }`}
-                      >
-                        ML
-                      </Button>
-                    </div>
+              {loadingRoster ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-8 text-sm text-muted-foreground">
+                    Loading section roster...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : roster.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-8 text-sm text-muted-foreground">
+                    No students enrolled in this section.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                roster.map((s) => (
+                  <TableRow key={s.id}>
+                    <TableCell className="font-semibold text-gray-900">
+                      {s.name}
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-500">
+                      {s.email}
+                    </TableCell>
+                    <TableCell className="text-xs text-gray-600">
+                      {s.department || 'CSE'} · Year {s.year || 3} ({s.section || 'A'})
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="inline-flex items-center gap-1.5 bg-gray-100 p-1 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(s.id, AttendanceStatus.PRESENT)}
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                            s.status === AttendanceStatus.PRESENT
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          Present
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(s.id, AttendanceStatus.ABSENT)}
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                            s.status === AttendanceStatus.ABSENT
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          Absent
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(s.id, AttendanceStatus.OD)}
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                            s.status === AttendanceStatus.OD
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          OD
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateStatus(s.id, AttendanceStatus.ML)}
+                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all ${
+                            s.status === AttendanceStatus.ML
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          ML
+                        </button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

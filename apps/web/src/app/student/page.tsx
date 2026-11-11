@@ -1,13 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   BookOpen,
   Calendar,
-  GraduationCap,
   CalendarCheck,
-  Video,
   ExternalLink,
   MessageSquare,
   Bell,
@@ -15,9 +13,9 @@ import {
   Clock,
   MapPin,
   CheckCircle2,
-  FileText,
-  HelpCircle,
-  FolderGit2,
+  AlertCircle,
+  ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { HeroBanner } from '@/components/layout/HeroBanner';
 import { StatCard } from '@/components/layout/StatCard';
@@ -27,180 +25,192 @@ import { Badge } from '@/components/ui/badge';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { useAuth } from '@/hooks/useAuth';
 import { Role } from '@koraylo/shared';
+import { api } from '@/lib/api';
+
+interface TodayClass {
+  id: string;
+  courseCode: string;
+  courseName: string;
+  sectionName: string;
+  slot: string;
+  room: string;
+  facultyName: string;
+  startTime: string;
+  endTime: string;
+}
+
+interface EventItem {
+  id: string;
+  title: string;
+  date: string;
+  venue?: string;
+  clubName: string;
+  isRegistered?: boolean;
+}
+
+interface AnnouncementItem {
+  id: string;
+  title: string;
+  content: string;
+  scope: string;
+  authorName: string;
+  createdAt: string;
+}
+
+interface ChannelItem {
+  id: string;
+  name: string;
+  type: string;
+  lastMessage?: {
+    content: string;
+    createdAt: string;
+    senderName: string;
+  };
+}
 
 export default function StudentDashboard() {
   const { user } = useAuth();
-  const [registeredEvents, setRegisteredEvents] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const [todayClasses, setTodayClasses] = useState<TodayClass[]>([]);
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
+  const [channels, setChannels] = useState<ChannelItem[]>([]);
+  const [attendance, setAttendance] = useState<{
+    percentage: number;
+    present: number;
+    absent: number;
+    od: number;
+    ml: number;
+    total: number;
+    margin: number;
+  }>({
+    percentage: 84,
+    present: 21,
+    absent: 3,
+    od: 1,
+    ml: 0,
+    total: 25,
+    margin: 2,
+  });
 
-  const toggleRegister = (id: string) => {
-    setRegisteredEvents((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
+  const [registeringId, setRegisteringId] = useState<string | null>(null);
+
+  const fetchDashboardData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [ttRes, attRes, evRes, annRes, chRes] = await Promise.allSettled([
+        api.get<{ success: boolean; data: TodayClass[] }>('/api/timetable/today'),
+        api.get<{ success: boolean; data: any }>('/api/attendance/my'),
+        api.get<{ success: boolean; data: EventItem[] }>('/api/events'),
+        api.get<{ success: boolean; data: AnnouncementItem[] }>('/api/announcements'),
+        api.get<{ success: boolean; data: ChannelItem[] }>('/api/channels/my'),
+      ]);
+
+      if (ttRes.status === 'fulfilled' && ttRes.value?.data) {
+        setTodayClasses(ttRes.value.data);
+      }
+      if (attRes.status === 'fulfilled' && attRes.value?.data) {
+        const ov = attRes.value.data.overall;
+        const avgMargin =
+          attRes.value.data.sections && attRes.value.data.sections.length > 0
+            ? Math.round(
+                attRes.value.data.sections.reduce((acc: number, s: any) => acc + s.margin, 0) /
+                  attRes.value.data.sections.length
+              )
+            : 0;
+
+        setAttendance({
+          percentage: ov.percentage,
+          present: ov.present,
+          absent: ov.absent,
+          od: ov.od,
+          ml: ov.ml,
+          total: ov.total,
+          margin: avgMargin,
+        });
+      }
+      if (evRes.status === 'fulfilled' && evRes.value?.data) {
+        setEvents(evRes.value.data.slice(0, 3));
+      }
+      if (annRes.status === 'fulfilled' && annRes.value?.data) {
+        setAnnouncements(annRes.value.data.slice(0, 4));
+      }
+      if (chRes.status === 'fulfilled' && chRes.value?.data) {
+        setChannels(chRes.value.data.slice(0, 3));
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  const toggleRegister = async (id: string, currentlyRegistered: boolean) => {
+    if (currentlyRegistered) return;
+    try {
+      setRegisteringId(id);
+      await api.post(`/api/events/${id}/register`);
+      setEvents((prev) =>
+        prev.map((e) => (e.id === id ? { ...e, isRegistered: true } : e))
+      );
+    } catch (err) {
+      console.error('Registration failed:', err);
+    } finally {
+      setRegisteringId(null);
+    }
   };
 
   const attendanceData = [
-    { name: 'Present', value: 42, color: '#16a34a' },
-    { name: 'Absent', value: 4, color: '#dc2626' },
-    { name: 'OD / ML', value: 3, color: '#d97706' },
+    { name: 'Present', value: attendance.present, color: '#16a34a' },
+    { name: 'Absent', value: attendance.absent, color: '#dc2626' },
+    { name: 'OD / ML', value: attendance.od + attendance.ml, color: '#d97706' },
   ];
 
-  const todayClasses = [
-    {
-      time: '09:00 - 10:00 AM',
-      courseCode: 'CS301',
-      courseName: 'Data Structures & Algorithms',
-      faculty: 'Prof. R. Ramanujan',
-      room: 'Room CS-102',
-      gcrUrl: 'https://classroom.google.com',
-      current: true,
-    },
-    {
-      time: '10:15 - 11:15 AM',
-      courseCode: 'CS303',
-      courseName: 'Computer Networks',
-      faculty: 'Dr. Anita Sharma',
-      room: 'Room CS-204',
-      gcrUrl: 'https://classroom.google.com',
-      current: false,
-    },
-    {
-      time: '11:30 - 12:30 PM',
-      courseCode: 'MA201',
-      courseName: 'Discrete Mathematics',
-      faculty: 'Prof. K. Venkatesh',
-      room: 'Lecture Hall 1',
-      gcrUrl: 'https://classroom.google.com',
-      current: false,
-    },
-    {
-      time: '02:00 - 04:00 PM',
-      courseCode: 'CS305P',
-      courseName: 'Operating Systems Laboratory',
-      faculty: 'Dr. P. Subramanian',
-      room: 'Lab 3 (Systems)',
-      gcrUrl: 'https://classroom.google.com',
-      current: false,
-    },
-  ];
-
-  const upcomingEvents = [
-    {
-      id: 'evt-1',
-      title: 'Hackathon 2026: Code for Green',
-      date: 'Oct 18, 2026',
-      time: '09:00 AM',
-      club: 'CSE Club',
-      venue: 'Main Auditorium',
-      type: 'Technical',
-    },
-    {
-      id: 'evt-2',
-      title: 'AI & Robotics Annual Symposium',
-      date: 'Oct 22, 2026',
-      time: '10:30 AM',
-      club: 'Robotics Society',
-      venue: 'Seminar Hall B',
-      type: 'Workshop',
-    },
-    {
-      id: 'evt-3',
-      title: 'Campus Cultural Fest Orientation',
-      date: 'Oct 28, 2026',
-      time: '04:00 PM',
-      club: 'Cultural Forum',
-      venue: 'Open Air Amphitheatre',
-      type: 'Cultural',
-    },
-  ];
-
-  const announcements = [
-    {
-      id: 'ann-1',
-      title: 'Mid-Semester Examination Schedule Released',
-      department: 'Dean Academics',
-      time: '2 hours ago',
-      important: true,
-    },
-    {
-      id: 'ann-2',
-      title: 'Smart India Hackathon 2026 Internal Nominations Open',
-      department: 'Innovation Cell',
-      time: '5 hours ago',
-      important: false,
-    },
-    {
-      id: 'ann-3',
-      title: 'Campus Wi-Fi Maintenance Window this Saturday midnight',
-      department: 'IT Services',
-      time: '1 day ago',
-      important: false,
-    },
-  ];
-
-  const channels = [
-    {
-      id: 'ch-1',
-      name: '#cs301-data-structures',
-      lastMessage: 'Dr. Ramanujan: Assignment 3 submission link is now live on GCR.',
-      time: '15m ago',
-      unread: 2,
-    },
-    {
-      id: 'ch-2',
-      name: '#cse-batch-2024',
-      lastMessage: 'Aarav Patel: Does anyone have the class notes from Thursday?',
-      time: '42m ago',
-      unread: 0,
-    },
-    {
-      id: 'ch-3',
-      name: '#green-hackathon-2026',
-      lastMessage: 'Coordinator: Team registrations will close at midnight.',
-      time: '2h ago',
-      unread: 4,
-    },
-  ];
+  const registeredCount = events.filter((e) => e.isRegistered).length;
 
   return (
     <div className="space-y-6">
       {/* Hero Greeting Banner */}
       <HeroBanner
-        name={user?.name || 'Aarav Sharma'}
+        name={user?.name || 'Student'}
         role={Role.STUDENT}
         quote="An investment in knowledge pays the best interest."
       />
 
-      {/* 4 Stat Cards */}
+      {/* 4 Stat Cards (Aligned with PRD MARK-3: no fake CGPA) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          label="Ongoing Courses"
-          value="6"
-          subtext="Sem V"
+          label="Today's Classes"
+          value={String(todayClasses.length)}
+          subtext="Scheduled lectures"
           icon={BookOpen}
           color="green"
           href="/student/timetable"
         />
         <StatCard
           label="Upcoming Events"
-          value="4"
-          subtext="Registered: 2"
+          value={String(events.length)}
+          subtext={`Registered: ${registeredCount}`}
           icon={Calendar}
           color="blue"
           href="/student/events"
         />
         <StatCard
-          label="Cumulative GPA"
-          value="8.84"
-          subtext="Top 10%"
-          icon={GraduationCap}
+          label="Attendance Margin"
+          value={attendance.margin >= 0 ? `+${attendance.margin}` : `${attendance.margin}`}
+          subtext={attendance.margin >= 0 ? 'Safe classes to miss' : 'Classes to recover'}
+          icon={ShieldCheck}
           color="purple"
-          href="/student/marks"
+          href="/student/attendance"
         />
         <StatCard
           label="Overall Attendance"
-          value="87.5%"
-          subtext="Target: 75%"
+          value={`${attendance.percentage}%`}
+          subtext="University Target: ≥ 75%"
           icon={CalendarCheck}
           color="amber"
           href="/student/attendance"
@@ -229,60 +239,55 @@ export default function StudentDashboard() {
               </Link>
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
-              {todayClasses.map((item, idx) => (
-                <div
-                  key={idx}
-                  className={`p-3.5 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                    item.current
-                      ? 'border-emerald-300 bg-emerald-50/40 shadow-xs'
-                      : 'border-gray-200 bg-white hover:border-gray-300'
-                  }`}
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-sm text-gray-900">
-                        {item.courseCode} · {item.courseName}
-                      </span>
-                      {item.current && (
-                        <Badge variant="present" className="text-[10px] animate-pulse">
-                          Now
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5 text-gray-400" />
-                        {item.time}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-gray-400" />
-                        {item.room}
-                      </span>
-                      <span className="font-medium text-gray-600">
-                        {item.faculty}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <a
-                      href={item.gcrUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex"
-                    >
-                      <Button
-                        size="sm"
-                        variant={item.current ? 'campus' : 'outline'}
-                        className="text-xs h-8 gap-1.5"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Open GCR</span>
-                      </Button>
-                    </a>
-                  </div>
+              {todayClasses.length === 0 ? (
+                <div className="p-8 text-center text-xs text-muted-foreground bg-gray-50 rounded-xl">
+                  No lectures scheduled for today. Enjoy your day or study!
                 </div>
-              ))}
+              ) : (
+                todayClasses.map((item, idx) => (
+                  <div
+                    key={item.id || idx}
+                    className="p-3.5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm text-gray-900">
+                          {item.courseCode} · {item.courseName}
+                        </span>
+                        <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-200">
+                          Slot {item.slot}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5 text-gray-400" />
+                          {item.startTime} – {item.endTime}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                          {item.room}
+                        </span>
+                        <span className="font-medium text-gray-600">
+                          {item.facultyName}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Link href="/student/gcr">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-8 gap-1.5"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Open GCR</span>
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
 
@@ -304,59 +309,65 @@ export default function StudentDashboard() {
               </Link>
             </CardHeader>
             <CardContent className="space-y-3 pt-0">
-              {upcomingEvents.map((evt) => {
-                const isRegistered = registeredEvents[evt.id];
-                return (
-                  <div
-                    key={evt.id}
-                    className="p-3.5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-sm text-gray-900">
-                          {evt.title}
-                        </h4>
-                        <Badge variant="outline" className="text-[10px]">
-                          {evt.type}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
-                        <span className="flex items-center gap-1 font-medium text-gray-700">
-                          <Calendar className="w-3.5 h-3.5 text-campus-green-600" />
-                          {evt.date} · {evt.time}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5 text-gray-400" />
-                          {evt.venue}
-                        </span>
-                        <span className="text-campus-green-700 font-medium">
-                          Organized by {evt.club}
-                        </span>
-                      </div>
-                    </div>
-
-                    <Button
-                      size="sm"
-                      variant={isRegistered ? 'secondary' : 'default'}
-                      onClick={() => toggleRegister(evt.id)}
-                      className={`text-xs h-8 shrink-0 ${
-                        isRegistered
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                          : 'bg-campus-green-950 hover:bg-campus-green-800 text-white'
-                      }`}
+              {events.length === 0 ? (
+                <div className="p-8 text-center text-xs text-muted-foreground bg-gray-50 rounded-xl">
+                  No upcoming events scheduled right now.
+                </div>
+              ) : (
+                events.map((evt) => {
+                  const isRegistered = !!evt.isRegistered;
+                  return (
+                    <div
+                      key={evt.id}
+                      className="p-3.5 rounded-xl border border-gray-200 bg-white hover:border-gray-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
-                      {isRegistered ? (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                          Registered
-                        </>
-                      ) : (
-                        'Register Now'
-                      )}
-                    </Button>
-                  </div>
-                );
-              })}
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-semibold text-sm text-gray-900">
+                            {evt.title}
+                          </h4>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
+                          <span className="flex items-center gap-1 font-medium text-gray-700">
+                            <Calendar className="w-3.5 h-3.5 text-campus-green-600" />
+                            {evt.date}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-3.5 h-3.5 text-gray-400" />
+                            {evt.venue || 'Campus Auditorium'}
+                          </span>
+                          <span className="text-campus-green-700 font-medium">
+                            {evt.clubName}
+                          </span>
+                        </div>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant={isRegistered ? 'secondary' : 'default'}
+                        onClick={() => toggleRegister(evt.id, isRegistered)}
+                        disabled={registeringId === evt.id || isRegistered}
+                        className={`text-xs h-8 shrink-0 ${
+                          isRegistered
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-campus-green-950 hover:bg-campus-green-800 text-white'
+                        }`}
+                      >
+                        {isRegistered ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600" />
+                            Registered
+                          </>
+                        ) : registeringId === evt.id ? (
+                          'Registering...'
+                        ) : (
+                          'Register Now'
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
             </CardContent>
           </Card>
 
@@ -371,24 +382,30 @@ export default function StudentDashboard() {
               </div>
             </CardHeader>
             <CardContent className="space-y-2.5 pt-0">
-              {announcements.map((ann) => (
-                <div
-                  key={ann.id}
-                  className="p-3 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors flex items-start justify-between gap-3"
-                >
-                  <div className="space-y-1">
-                    <p className="text-xs font-semibold text-gray-800">
-                      {ann.title}
-                    </p>
-                    <p className="text-[11px] text-gray-500">
-                      From: <span className="font-medium text-gray-700">{ann.department}</span>
-                    </p>
-                  </div>
-                  <span className="text-[11px] text-gray-400 shrink-0">
-                    {ann.time}
-                  </span>
+              {announcements.length === 0 ? (
+                <div className="p-6 text-center text-xs text-muted-foreground bg-gray-50 rounded-xl">
+                  No announcements at this time.
                 </div>
-              ))}
+              ) : (
+                announcements.map((ann) => (
+                  <div
+                    key={ann.id}
+                    className="p-3 rounded-lg border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition-colors flex items-start justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold text-gray-800">
+                        {ann.title}
+                      </p>
+                      <p className="text-[11px] text-gray-600 line-clamp-2">
+                        {ann.content}
+                      </p>
+                      <p className="text-[10px] text-gray-500">
+                        Author: <span className="font-medium text-gray-700">{ann.authorName}</span> · {ann.scope} notice
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
@@ -410,7 +427,7 @@ export default function StudentDashboard() {
             <CardContent className="pt-2">
               <DonutChart
                 data={attendanceData}
-                centerValue="87.5%"
+                centerValue={`${attendance.percentage}%`}
                 centerLabel="Overall"
                 height={190}
                 innerRadius={50}
@@ -427,39 +444,39 @@ export default function StudentDashboard() {
           <Card className="border-gray-200 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-bold text-gray-900">
-                Quick Links
+                Quick Actions
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
+              <Link
+                href="/student/attendance"
+                className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-200 text-xs font-medium text-gray-700 transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  <CalendarCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Submit OD / ML Application</span>
+                </div>
+                <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
+              </Link>
+
               <Link
                 href="/student/timetable"
                 className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-200 text-xs font-medium text-gray-700 transition-colors"
               >
                 <div className="flex items-center gap-2.5">
                   <Clock className="w-4 h-4 text-emerald-600" />
-                  <span>View Time Table</span>
+                  <span>View Full Schedule</span>
                 </div>
                 <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
               </Link>
 
               <Link
-                href="/student/events"
+                href="/student/marks"
                 className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-200 text-xs font-medium text-gray-700 transition-colors"
               >
                 <div className="flex items-center gap-2.5">
-                  <Calendar className="w-4 h-4 text-blue-600" />
-                  <span>Academic Calendar</span>
-                </div>
-                <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
-              </Link>
-
-              <Link
-                href="/student/attendance"
-                className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-200 text-xs font-medium text-gray-700 transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <FileText className="w-4 h-4 text-amber-600" />
-                  <span>Submit Leave / OD Request</span>
+                  <ShieldCheck className="w-4 h-4 text-purple-600" />
+                  <span>Exam Marks & Transcripts</span>
                 </div>
                 <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
               </Link>
@@ -469,69 +486,55 @@ export default function StudentDashboard() {
                 className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-200 text-xs font-medium text-gray-700 transition-colors"
               >
                 <div className="flex items-center gap-2.5">
-                  <FolderGit2 className="w-4 h-4 text-purple-600" />
-                  <span>Linked GCR Courses</span>
+                  <ExternalLink className="w-4 h-4 text-blue-600" />
+                  <span>Google Classrooms (GCR)</span>
                 </div>
                 <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
               </Link>
-
-              <a
-                href="#support"
-                onClick={(e) => {
-                  e.preventDefault();
-                  alert('Campus Helpdesk: support@campus.edu | Helpline: +91 98765 43210');
-                }}
-                className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-200 text-xs font-medium text-gray-700 transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <HelpCircle className="w-4 h-4 text-rose-600" />
-                  <span>Student Support & Grievance</span>
-                </div>
-                <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
-              </a>
             </CardContent>
           </Card>
 
-          {/* Recent Channel Messages */}
+          {/* Active Channels Widget (COMM-5) */}
           <Card className="border-gray-200 shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between pb-3">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-campus-green-600" />
-                <CardTitle className="text-base font-bold text-gray-900">
-                  Chats & Channels
-                </CardTitle>
-              </div>
+              <CardTitle className="text-base font-bold text-gray-900">
+                Active Channels
+              </CardTitle>
               <Link href="/student/chats">
                 <Button variant="ghost" size="sm" className="text-xs text-campus-green-600 hover:text-campus-green-700 p-0 h-auto">
-                  Open
+                  All Chats
                 </Button>
               </Link>
             </CardHeader>
-            <CardContent className="space-y-3 pt-0">
-              {channels.map((ch) => (
-                <Link
-                  key={ch.id}
-                  href="/student/chats"
-                  className="block p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-semibold text-xs text-gray-800">
-                      {ch.name}
-                    </span>
-                    <span className="text-[10px] text-gray-400">{ch.time}</span>
-                  </div>
-                  <p className="text-[11px] text-gray-600 truncate">
-                    {ch.lastMessage}
-                  </p>
-                  {ch.unread > 0 && (
-                    <div className="mt-1.5 flex justify-end">
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-600 text-white font-bold">
-                        {ch.unread} new
+            <CardContent className="space-y-2 pt-0">
+              {channels.length === 0 ? (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  No active channels joined.
+                </div>
+              ) : (
+                channels.map((ch) => (
+                  <Link
+                    key={ch.id}
+                    href="/student/chats"
+                    className="p-2.5 rounded-lg border border-gray-100 hover:bg-gray-50 hover:border-gray-200 transition-colors block"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-xs text-gray-900">
+                        #{ch.name}
                       </span>
+                      <Badge variant="outline" className="text-[9px] text-gray-500">
+                        {ch.type}
+                      </Badge>
                     </div>
-                  )}
-                </Link>
-              ))}
+                    {ch.lastMessage && (
+                      <p className="text-[11px] text-gray-500 truncate mt-1">
+                        <span className="font-medium text-gray-700">{ch.lastMessage.senderName}: </span>
+                        {ch.lastMessage.content}
+                      </p>
+                    )}
+                  </Link>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
